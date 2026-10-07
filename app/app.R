@@ -1,23 +1,22 @@
-# STM3DSP Assessment 2
-# Robust Regression Explorer
-# Member 1: User interface, CSV upload and data handling
+# STM3DSP Assessment 4
+# Robust Regression Explorer: OLS, LMS and neural networks
+# Extended individually from the Assessment 2 group application.
 
 
 library(shiny)
 library(ggplot2)
 
-# Load the model functions. These paths work both when the app is launched
-# from RStudio and when shiny::runApp("Assignment2") is called from the
-# repository root.
-app_directory <- if (file.exists("ols_model.R")) {
-  "."
-} else {
-  "Assignment2"
+app_directory <- if (file.exists("app.R")) "." else "app"
+
+helper_files <- list.files(
+  file.path(app_directory, "R"),
+  pattern = "\\.R$",
+  full.names = TRUE
+)
+for (helper_file in helper_files) {
+  source(helper_file, local = TRUE)
 }
 
-source(file.path(app_directory, "ols_model.R"), local = TRUE)
-source(file.path(app_directory, "R", "lms_model.R"), local = TRUE)
-source(file.path(app_directory, "R", "comparison.R"), local = TRUE)
 
 # -----------------------------
 # USER INTERFACE
