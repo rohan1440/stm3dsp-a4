@@ -1006,14 +1006,14 @@ server <- function(input, output, session) {
     )
 
     complete_data
-  }, ignoreInit = TRUE)
+  })
 
   # Fit the OLS model when the user clicks Fit and Compare Models.
   ols_model <- eventReactive(input$run_models, {
     data <- model_data()
     req(data, input$y_var, input$x_vars)
     fit_ols(data, input$x_vars, input$y_var)
-  }, ignoreInit = TRUE)
+  })
   
   # 2. Hiển thị bảng summary mô hình OLS
   output$ols_summary <- renderPrint({
@@ -1075,7 +1075,7 @@ server <- function(input, output, session) {
     )
 
     result
-  }, ignoreInit = TRUE)
+  })
 
   output$lms_coefficients <- renderTable({
     req(lms_result())
