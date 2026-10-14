@@ -1,43 +1,58 @@
 # Module: Least Median of Squares (LMS) Regression
-# Author: Gaurab Bhusal
 
 # Fit an LMS regression model using numerical optimisation.
-fit_lms <- function(data, x_vars, y_var) {
+fit_lms <- function(data, x_vars, y_var,
+                    n_jitter = 20,
+                    n_elemental = 300,
+                    n_refine = 5,
+                    seed = 2026) {
   y <- data[[y_var]]
   x_matrix <- as.matrix(data[, x_vars, drop = FALSE])
-
+  
   if (any(!is.finite(y)) || any(!is.finite(x_matrix))) {
     stop("LMS requires finite values in all selected variables.")
   }
-
-  residuals_fn <- function(params) {
-    intercept <- params[1]
-    slopes <- params[-1]
-    predicted <- as.numeric(intercept + x_matrix %*% slopes)
-    y - predicted
-  }
-
+  
+  design_matrix <- cbind(1, x_matrix)
+  number_of_parameters <- ncol(design_matrix)
+  
   lms_objective <- function(params) {
-    median(residuals_fn(params)^2)
+    residuals <- y - as.numeric(design_matrix %*% params)
+    median(residuals^2)
   }
-
-  number_of_parameters <- ncol(x_matrix) + 1
+  
   zero_start <- rep(0, number_of_parameters)
   median_start <- c(median(y), rep(0, ncol(x_matrix)))
-
-  ols_formula <- reformulate(x_vars, response = y_var)
-  ols_start <- as.numeric(coef(lm(ols_formula, data = data)))
-
-  candidate_starts <- list(zero_start, median_start)
-
-  if (
-    length(ols_start) == number_of_parameters &&
-    all(is.finite(ols_start))
-  ) {
-    candidate_starts <- c(candidate_starts, list(ols_start))
-  }
-
-  candidate_fits <- lapply(candidate_starts, function(starting_values) {
+  ols_start <- as.numeric(qr.coef(qr(design_matrix), y))
+  ols_start[!is.finite(ols_start)] <- 0
+  
+  candidate_starts <- list(zero_start, median_start, ols_start)
+  
+  random_starts <- with_local_seed(seed, {
+    jitter_scale <- pmax(abs(ols_start), sd(y) / 10)
+    jittered <- lapply(seq_len(n_jitter), function(i) {
+      ols_start + rnorm(number_of_parameters, sd = jitter_scale)
+    })
+    
+    elemental <- lapply(seq_len(n_elemental), function(i) {
+      rows <- sample(nrow(design_matrix), number_of_parameters)
+      tryCatch(
+        as.numeric(solve(design_matrix[rows, , drop = FALSE], y[rows])),
+        error = function(e) NULL
+      )
+    })
+    
+    c(jittered, Filter(Negate(is.null), elemental))
+  })
+  
+  candidate_starts <- c(candidate_starts, random_starts)
+  
+  start_scores <- vapply(candidate_starts, lms_objective, numeric(1))
+  best_starts <- candidate_starts[order(start_scores)][seq_len(
+    min(n_refine, length(candidate_starts))
+  )]
+  
+  candidate_fits <- lapply(best_starts, function(starting_values) {
     tryCatch(
       optim(
         par = starting_values,
@@ -48,28 +63,52 @@ fit_lms <- function(data, x_vars, y_var) {
       error = function(error_message) NULL
     )
   })
-
+  
   candidate_fits <- Filter(
     function(result) {
       !is.null(result) && is.finite(result$value) && all(is.finite(result$par))
     },
     candidate_fits
   )
-
+  
   if (length(candidate_fits) == 0) {
     stop("The LMS numerical optimisation could not find a finite solution.")
   }
-
+  
   objective_values <- vapply(
     candidate_fits,
     function(result) result$value,
     numeric(1)
   )
-
+  
   result <- candidate_fits[[which.min(objective_values)]]
   names(result$par) <- c("(Intercept)", x_vars)
+  result$n_starts <- length(candidate_starts)
   result
 }
+
+with_local_seed <- function(seed, expr) {
+  if (is.null(seed)) {
+    return(expr)
+  }
+  
+  had_seed <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  if (had_seed) {
+    old_seed <- get(".Random.seed", envir = globalenv())
+  }
+  
+  on.exit({
+    if (had_seed) {
+      assign(".Random.seed", old_seed, envir = globalenv())
+    } else if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+      rm(".Random.seed", envir = globalenv())
+    }
+  })
+  
+  set.seed(seed)
+  expr
+}
+
 
 # Extract a tidy coefficient table from an LMS model.
 get_lms_coefficients <- function(lms_result) {
