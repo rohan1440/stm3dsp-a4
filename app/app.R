@@ -170,9 +170,7 @@ ui <- fluidPage(
     column(6,
       h4("OLS Regression Fit Plot"),
       plotOutput("ols_plot"),
-      p(em("The solid line shows the fitted OLS regression line. The shaded band 
-          represents the 95% confidence interval for this line, indicating the 
-          range of plausible fitted lines given the uncertainty in the data."))
+      uiOutput("ols_plot_caption")
     )
   ),
   hr(),
@@ -1043,21 +1041,28 @@ server <- function(input, output, session) {
     summary(ols_model())
   })
   
-  # 3. Vẽ biểu đồ OLS Fit (Sử dụng ggplot2 và màu tím #9b59b6 đặc trưng của OLS)
+  # 3. One explanatory variable: scatter plot with the fitted line.
+  # Several explanatory variables: actual vs fitted values.
   output$ols_plot <- renderPlot({
-    req(ols_model(), validated_data())
-    data <- validated_data()
-    x_first <- fitted_x()[1]
+    req(ols_model(), model_data())
+    plot_ols_fit(model_data(), fitted_x(), fitted_y(), ols_model())
+  })
+  
+  output$ols_plot_caption <- renderUI({
+    req(fitted_x())
     
-    ggplot(data, aes_string(x = x_first, y = fitted_y())) +
-      geom_point(color = "#3498db", size = 3, alpha = 0.7) +
-      geom_smooth(method = "lm", color = "#9b59b6", fill = "#e84393", se = TRUE) +
-      theme_minimal(base_size = 14) +
-      labs(
-        title = paste("OLS Regression Fit:", fitted_y(), "vs", x_first),
-        x = x_first,
-        y = fitted_y()
-      )
+    if (length(fitted_x()) == 1) {
+      p(em(
+        "The line shows the fitted OLS regression line for the single ",
+        "explanatory variable."
+      ))
+    } else {
+      p(em(
+        "With more than one explanatory variable a single fitted line cannot ",
+        "be drawn, so this plot shows actual against fitted values for the ",
+        "full model. Points on the dashed 45-degree line are predicted exactly."
+      ))
+    }
   })
   
   # 4. Vẽ biểu đồ Residual Diagnostics
