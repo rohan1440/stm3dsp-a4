@@ -342,12 +342,13 @@ ui <- fluidPage(
           h4("Why LMS resists outliers"),
           p(
             "This behaviour mirrors the difference between a mean and a median in ",
-            "basic statistics. If one very large value is added to a small set of ",
-            "numbers, the mean shifts substantially, while the median barely ",
-            "moves, because the median only depends on which value sits in the ",
-            "middle, not on how extreme any single value is. LMS applies this same ",
-            "principle to regression: because it optimises a median rather than a ",
-            "sum, an outlier has little ability to distort the fitted line."
+            "basic statistics. By changing just one number, the mean of a set of values ",
+            "can be moved to any value at all, however extreme. The median cannot be ",
+            "moved arbitrarily far unless at least half of the values are changed. ",
+            "LMS applies this principle to regression: because it minimises a median ",
+            "rather than a sum, a minority of outliers cannot drag the fitted line ",
+            "arbitrarily far. This resistance has a limit, called the breakdown ",
+            "point, which for LMS is close to 50% of the observations.",
           ),
           p(
             "Unlike OLS, which has a direct mathematical formula for its solution, ",
