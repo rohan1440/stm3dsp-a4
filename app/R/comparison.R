@@ -81,3 +81,72 @@ compare_coefficients <- function(x_vars, ols_model, lms_result) {
     check.names = FALSE
   )
 }
+
+# Combine OLS and LMS residuals for the same observations in one data frame.
+get_residual_comparison_data <- function(data, x_vars, y_var, ols_model, lms_result) {
+  ols_fitted <- get_ols_fitted_data(data, ols_model)
+  lms_fitted <- get_lms_fitted_data(data, x_vars, y_var, lms_result)
+  
+  observation_order <- order(data[[x_vars[1]]])
+  rank_in_order <- integer(nrow(data))
+  rank_in_order[observation_order] <- seq_len(nrow(data))
+  
+  rbind(
+    data.frame(
+      Observation = rank_in_order,
+      Model = "OLS",
+      Residual = ols_fitted$Residuals
+    ),
+    data.frame(
+      Observation = rank_in_order,
+      Model = "LMS",
+      Residual = lms_fitted$Residuals
+    )
+  )
+}
+
+# Plot OLS and LMS residuals side by side for every observation.
+plot_residual_comparison <- function(data, x_vars, y_var, ols_model, lms_result) {
+  residual_data <- get_residual_comparison_data(
+    data, x_vars, y_var, ols_model, lms_result
+  )
+  
+  ggplot(
+    residual_data,
+    aes(x = Observation, y = Residual, colour = Model, shape = Model)
+  ) +
+    geom_hline(yintercept = 0, linetype = "dashed", colour = "grey50") +
+    geom_line(aes(group = Observation), colour = "grey75") +
+    geom_point(size = 2.6, alpha = 0.85) +
+    scale_colour_manual(values = c("OLS" = "#9b59b6", "LMS" = "#e67e22")) +
+    labs(
+      title = "Residuals of OLS and LMS for each observation",
+      x = paste0("Observation (ordered by ", x_vars[1], ")"),
+      y = "Residual (observed - fitted)"
+    ) +
+    theme_minimal(base_size = 13)
+}
+
+# Summarise residual size for each model.
+compare_residuals <- function(data, x_vars, y_var, ols_model, lms_result) {
+  residual_data <- get_residual_comparison_data(
+    data, x_vars, y_var, ols_model, lms_result
+  )
+  
+  summary_rows <- lapply(c("OLS", "LMS"), function(model_name) {
+    residuals <- residual_data$Residual[residual_data$Model == model_name]
+    robust_scale <- 1.4826 * median(abs(residuals))
+    
+    data.frame(
+      Model = model_name,
+      Median_Abs_Residual = round(median(abs(residuals)), 3),
+      Root_Mean_Square = round(sqrt(mean(residuals^2)), 3),
+      Max_Abs_Residual = round(max(abs(residuals)), 3),
+      Large_Residuals = sum(abs(residuals) > 2.5 * robust_scale),
+      check.names = FALSE
+    )
+  })
+  
+  do.call(rbind, summary_rows)
+}
+

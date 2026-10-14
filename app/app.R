@@ -262,6 +262,29 @@ ui <- fluidPage(
               ),
               verbatimTextOutput("comparison_summary")
             )
+          ),
+          
+          tags$hr(),
+          
+          h4("Residual Comparison"),
+          fluidRow(
+            column(
+              width = 7,
+              plotOutput("residual_comparison_plot")
+            ),
+            column(
+              width = 5,
+              tableOutput("residual_comparison_table"),
+              p(em(
+                "Each grey segment joins the OLS and LMS residuals of the same ",
+                "observation. LMS follows the majority of the data, so its ",
+                "residuals are close to zero for typical points and very large ",
+                "for outliers. OLS spreads the error across all points, so the ",
+                "outliers look smaller but the typical residuals are larger. ",
+                "'Large_Residuals' counts residuals beyond 2.5 robust standard ",
+                "deviations (1.4826 x the median absolute residual)."
+              ))
+            )
           )
         ),
         
@@ -1171,6 +1194,28 @@ server <- function(input, output, session) {
       "whether unusual observations are materially changing the OLS fit."
     )
   })
+  
+  output$residual_comparison_plot <- renderPlot({
+    req(ols_model(), lms_result(), model_data())
+    plot_residual_comparison(
+      model_data(),
+      fitted_x(),
+      fitted_y(),
+      ols_model(),
+      lms_result()
+    )
+  })
+  
+  output$residual_comparison_table <- renderTable({
+    req(ols_model(), lms_result(), model_data())
+    compare_residuals(
+      model_data(),
+      fitted_x(),
+      fitted_y(),
+      ols_model(),
+      lms_result()
+    )
+  }, striped = TRUE, bordered = TRUE, spacing = "s")
   
 }
 
