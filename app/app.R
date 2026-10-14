@@ -399,6 +399,7 @@ ui <- fluidPage(
 
 server <- function(input, output, session) {
   
+  fit_results <- reactiveVal(NULL)
   
   # Read the uploaded CSV file
   uploaded_data <- reactive({
@@ -764,12 +765,29 @@ server <- function(input, output, session) {
       )
     }
     
-    paste0(
-      "Response variable (Y): ",
-      input$y_var,
-      "\nExplanatory variable(s) (X): ",
-      paste(input$x_vars, collapse = ", ")
+    if (is.null(fit_results())) {
+      return("Click 'Fit and Compare Models' to fit OLS and LMS.")
+    }
+    
+    fitted_text <- paste0(
+      "Results below were fitted with:",
+      "\n  Response variable (Y): ", fit_results()$y_var,
+      "\n  Explanatory variable(s) (X): ",
+      paste(fit_results()$x_vars, collapse = ", ")
     )
+    
+    selection_changed <- !identical(input$y_var, fit_results()$y_var) ||
+      !setequal(input$x_vars, fit_results()$x_vars)
+    
+    if (selection_changed) {
+      fitted_text <- paste0(
+        fitted_text,
+        "\n\nNote: the sidebar selection has changed since this fit. ",
+        "Click 'Fit and Compare Models' again to update the results."
+      )
+    }
+    
+    fitted_text
   })
   
   
@@ -957,9 +975,35 @@ server <- function(input, output, session) {
       )
     }
     
+    ols_fit <- fit_ols(complete_data, input$x_vars, input$y_var)
+    
+    lms_fit <- tryCatch(
+      fit_lms(complete_data, input$x_vars, input$y_var),
+      error = function(error_message) {
+        showNotification(
+          paste("LMS fitting failed:", error_message$message),
+          type = "error",
+          duration = 8
+        )
+        NULL
+      }
+    )
+    
+    if (is.null(lms_fit)) {
+      return()
+    }
+    
+    fit_results(list(
+      data = complete_data,
+      y_var = input$y_var,
+      x_vars = input$x_vars,
+      ols = ols_fit,
+      lms = lms_fit
+    ))
+    
     showNotification(
       paste(
-        "The data and variables are ready.",
+        "Models fitted.",
         "Open the OLS, LMS and Model Comparison tabs to view the results."
       ),
       type = "message",
@@ -967,53 +1011,31 @@ server <- function(input, output, session) {
     )
   })
 
-  # Use the same complete observations for both models so their results can
-  # be compared directly.
-  model_data <- eventReactive(input$run_models, {
-    data <- validated_data()
-    req(input$y_var, input$x_vars)
-
-    selected_variables <- unique(c(input$y_var, input$x_vars))
-
-    validate(
-      need(
-        all(selected_variables %in% names(data)),
-        "The selected variables are not available in the uploaded dataset."
-      ),
-      need(
-        all(vapply(data[selected_variables], is.numeric, logical(1))),
-        "All selected variables must be numeric."
-      )
-    )
-
-    complete_rows <- complete.cases(data[selected_variables])
-    complete_data <- data[complete_rows, , drop = FALSE]
-    minimum_rows <- length(input$x_vars) + 2
-
-    validate(
-      need(
-        nrow(complete_data) >= minimum_rows,
-        paste("At least", minimum_rows, "complete rows are required.")
-      ),
-      need(
-        all(vapply(
-          complete_data[selected_variables],
-          function(variable) length(unique(variable)) >= 2,
-          logical(1)
-        )),
-        "Every selected variable must contain at least two different values."
-      )
-    )
-
-    complete_data
+  model_data <- reactive({
+    req(fit_results())
+    fit_results()$data
   })
-
-  # Fit the OLS model when the user clicks Fit and Compare Models.
-  ols_model <- eventReactive(input$run_models, {
-    data <- model_data()
-    req(data, input$y_var, input$x_vars)
-    fit_ols(data, input$x_vars, input$y_var)
+  
+  ols_model <- reactive({
+    req(fit_results())
+    fit_results()$ols
   })
+  
+  lms_result <- reactive({
+    req(fit_results())
+    fit_results()$lms
+  })
+  
+  fitted_y <- reactive({
+    req(fit_results())
+    fit_results()$y_var
+  })
+  
+  fitted_x <- reactive({
+    req(fit_results())
+    fit_results()$x_vars
+  })
+  
   
   # 2. Hiển thị bảng summary mô hình OLS
   output$ols_summary <- renderPrint({
@@ -1025,16 +1047,16 @@ server <- function(input, output, session) {
   output$ols_plot <- renderPlot({
     req(ols_model(), validated_data())
     data <- validated_data()
-    x_first <- input$x_vars[1]
+    x_first <- fitted_x()[1]
     
-    ggplot(data, aes_string(x = x_first, y = input$y_var)) +
+    ggplot(data, aes_string(x = x_first, y = fitted_y())) +
       geom_point(color = "#3498db", size = 3, alpha = 0.7) +
       geom_smooth(method = "lm", color = "#9b59b6", fill = "#e84393", se = TRUE) +
       theme_minimal(base_size = 14) +
       labs(
-        title = paste("OLS Regression Fit:", input$y_var, "vs", x_first),
+        title = paste("OLS Regression Fit:", fitted_y(), "vs", x_first),
         x = x_first,
-        y = input$y_var
+        y = fitted_y()
       )
   })
   
@@ -1060,23 +1082,6 @@ server <- function(input, output, session) {
       )
   })
 
-  # Fit the LMS model using the same observations as OLS.
-  lms_result <- eventReactive(input$run_models, {
-    data <- model_data()
-    req(data, input$y_var, input$x_vars)
-
-    result <- fit_lms(data, input$x_vars, input$y_var)
-
-    validate(
-      need(
-        is.list(result) && !is.null(result$par),
-        "The LMS optimisation did not return model coefficients."
-      )
-    )
-
-    result
-  })
-
   output$lms_coefficients <- renderTable({
     req(lms_result())
     get_lms_coefficients(lms_result())
@@ -1090,8 +1095,8 @@ server <- function(input, output, session) {
     statistics <- get_lms_summary_stats(
       result,
       data,
-      input$x_vars,
-      input$y_var
+      fitted_x(),
+      fitted_y()
     )
 
     cat("Observations used:", nrow(data), "\n")
@@ -1107,8 +1112,8 @@ server <- function(input, output, session) {
     req(lms_result(), model_data())
     plot_lms_fit(
       model_data(),
-      input$x_vars,
-      input$y_var,
+      fitted_x(),
+      fitted_y(),
       lms_result()
     )
   })
@@ -1117,8 +1122,8 @@ server <- function(input, output, session) {
     req(lms_result(), model_data())
     plot_lms_residuals(
       model_data(),
-      input$x_vars,
-      input$y_var,
+      fitted_x(),
+      fitted_y(),
       lms_result()
     )
   })
@@ -1127,8 +1132,8 @@ server <- function(input, output, session) {
     req(ols_model(), lms_result(), model_data())
     plot_comparison(
       model_data(),
-      input$x_vars,
-      input$y_var,
+      fitted_x(),
+      fitted_y(),
       ols_model(),
       lms_result()
     )
@@ -1136,14 +1141,14 @@ server <- function(input, output, session) {
 
   output$coefficient_comparison <- renderTable({
     req(ols_model(), lms_result())
-    compare_coefficients(input$x_vars, ols_model(), lms_result())
+    compare_coefficients(fitted_x(), ols_model(), lms_result())
   }, striped = TRUE, bordered = TRUE, spacing = "s")
 
   output$comparison_summary <- renderText({
     req(ols_model(), lms_result())
 
     coefficient_table <- compare_coefficients(
-      input$x_vars,
+      fitted_x(),
       ols_model(),
       lms_result()
     )
