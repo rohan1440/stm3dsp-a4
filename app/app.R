@@ -30,33 +30,48 @@ ui <- fluidPage(
     
     sidebarPanel(
       
-      h4("1. Upload Dataset"),
+      h4("1. Choose Data"),
       
-      fileInput(
-        inputId = "csv_file",
-        label = "Choose a CSV file",
-        accept = c(".csv", "text/csv")
-      ),
-      
-      helpText(
-        "Upload a CSV file containing at least two numeric variables."
-      ),
-      
-      checkboxInput(
-        inputId = "header",
-        label = "The file contains column names",
-        value = TRUE
-      ),
-      
-      selectInput(
-        inputId = "separator",
-        label = "Column separator",
+      radioButtons(
+        inputId = "data_source",
+        label = NULL,
         choices = c(
-          "Comma" = ",",
-          "Semicolon" = ";",
-          "Tab" = "\t"
+          "Sample: cars stopping distances (1920s)" = "cars",
+          "Sample: student marks (Assessment 2 demo)" = "marks",
+          "Upload my own CSV file" = "upload"
         ),
-        selected = ","
+        selected = "cars"
+      ),
+      
+      conditionalPanel(
+        condition = "input.data_source == 'upload'",
+        
+        fileInput(
+          inputId = "csv_file",
+          label = "Choose a CSV file",
+          accept = c(".csv", "text/csv")
+        ),
+        
+        helpText(
+          "Upload a CSV file containing at least two numeric variables."
+        ),
+        
+        checkboxInput(
+          inputId = "header",
+          label = "The file contains column names",
+          value = TRUE
+        ),
+        
+        selectInput(
+          inputId = "separator",
+          label = "Column separator",
+          choices = c(
+            "Comma" = ",",
+            "Semicolon" = ";",
+            "Tab" = "\t"
+          ),
+          selected = ","
+        )
       ),
       
       tags$hr(),
@@ -104,8 +119,8 @@ ui <- fluidPage(
           h3("How to Use the Application"),
           
           tags$ol(
-            tags$li("Upload a CSV dataset."),
-            tags$li("Check the uploaded data."),
+            tags$li("Choose a built-in sample dataset or upload your own CSV file."),
+            tags$li("Check the data in the Data Preview tab."),
             tags$li("Select one response variable."),
             tags$li("Select one or more explanatory variables."),
             tags$li("Click the Fit and Compare Models button."),
@@ -133,7 +148,7 @@ ui <- fluidPage(
         tabPanel(
           title = "Data Preview",
           
-          h3("Uploaded Dataset"),
+          h3("Current Dataset"),
           
           h4("File Information"),
           
@@ -455,11 +470,45 @@ server <- function(input, output, session) {
     )
   })
   
+  # Built-in sample datasets stored in app/data.
+  sample_files <- c(
+    cars = "cars_original.csv",
+    marks = "sample_regression_data.csv"
+  )
+  
+  # The dataset currently in use
+  current_data <- reactive({
+    req(input$data_source)
+    
+    if (input$data_source == "upload") {
+      return(uploaded_data())
+    }
+    
+    read.csv(
+      file.path(app_directory, "data", sample_files[[input$data_source]]),
+      check.names = FALSE
+    )
+  })
+  
+  # A readable name for the dataset currently in use.
+  current_data_name <- reactive({
+    if (input$data_source == "upload") {
+      req(input$csv_file)
+      input$csv_file$name
+    } else {
+      paste(sample_files[[input$data_source]], "(built-in sample)")
+    }
+  })
+  
+  # Changing the dataset invalidates any previous fit.
+  observeEvent(current_data(), {
+    fit_results(NULL)
+  })
   
   # Return the names of numeric columns
   numeric_columns <- reactive({
     
-    data <- uploaded_data()
+    data <- current_data()
     
     req(!is.null(data))
     
@@ -473,10 +522,10 @@ server <- function(input, output, session) {
   })
   
   
-  # Update variable selections after a file is uploaded
-  observeEvent(uploaded_data(), {
+  # Update variable selections whenever the dataset changes
+  observeEvent(current_data(), {
     
-    data <- uploaded_data()
+    data <- current_data()
     
     req(!is.null(data))
     
@@ -490,7 +539,7 @@ server <- function(input, output, session) {
     
     if (length(numeric_names) > 0) {
       
-      selected_y <- numeric_names[1]
+      selected_y <- tail(numeric_names, 1)
       
       available_x <- setdiff(
         numeric_names,
@@ -570,7 +619,7 @@ server <- function(input, output, session) {
   # Validate the uploaded dataset
   validated_data <- reactive({
     
-    data <- uploaded_data()
+    data <- current_data()
     
     validate(
       need(
@@ -627,8 +676,8 @@ server <- function(input, output, session) {
     data <- validated_data()
     
     paste0(
-      "File name: ",
-      input$csv_file$name,
+      "Dataset: ",
+      current_data_name(),
       "\nNumber of observations: ",
       nrow(data),
       "\nNumber of variables: ",
@@ -816,7 +865,7 @@ server <- function(input, output, session) {
   # Check selections when the button is clicked
   observeEvent(input$run_models, {
     
-    if (is.null(input$csv_file)) {
+    if (input$data_source == "upload" && is.null(input$csv_file)) {
       
       showNotification(
         "Please upload a CSV file before fitting the models.",
@@ -826,7 +875,7 @@ server <- function(input, output, session) {
       return()
     }
     
-    data <- uploaded_data()
+    data <- current_data()
     
     if (is.null(data)) {
       
